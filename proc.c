@@ -166,6 +166,58 @@ fork(void)
   return pid;
 }
 
+int clone(void(*fcn)(void*), void *arg, void *stack)
+{
+  int i, pid;
+  struct proc *np;
+
+  // Allocate process.
+  if((np = allocproc()) == 0)
+    return -1;
+
+  np->pgdir = proc->pgdir;
+  np->sz = proc->sz;
+  np->parent = proc;
+  *np->tf = *proc->tf;
+
+  // Clear %eax so that fork returns 0 in the child.
+  np->tf->eax = 0;
+
+  for(i = 0; i < NOFILE; i++)
+    if(proc->ofile[i])
+      np->ofile[i] = filedup(proc->ofile[i]);
+  np->cwd = idup(proc->cwd);
+
+  safestrcpy(np->name, proc->name, sizeof(proc->name));
+ 
+  pid = np->pid;
+
+  // lock to force the compiler to emit the np->state write last.
+// temporary array to copy into the bottom of new stack 
+  // for the thread (i.e., to the high address in stack
+  // page, since the stack grows downward)
+  uint ustack[2];
+  uint sp = (uint)stack+PGSIZE;
+  ustack[0] = 0xffffffff; // fake return PC
+  ustack[1] = (uint)arg;
+
+  sp -= 8; // stack grows down by 2 ints/8 bytes
+  if (copyout(np->pgdir, sp, ustack, 8) < 0) {
+    // failed to copy bottom of stack into new task
+    return -1;
+  }
+  np->tf->eip = (uint)fcn;
+  np->tf->esp = sp;
+  switchuvm(np);
+  np->state = RUNNABLE;
+  
+  return pid;
+}
+
+int join (int pid){
+	return 0;
+}
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait() to find out it exited.
