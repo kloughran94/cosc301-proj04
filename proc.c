@@ -187,10 +187,14 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
   // Allocate process.
   if((np = allocproc()) == 0)
     return -1;
-
+	if (proc->thrdflg == 1){
+		np->parent = proc->parent;
+	}
+	else{
+	np->parent = proc;
+	}
   np->pgdir = proc->pgdir;
   np->sz = proc->sz;
-  np->parent = proc;
   *np->tf = *proc->tf;
   np->thrdflg = 1;
 
@@ -277,7 +281,6 @@ int join (int pid){
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        freevm(p->pgdir);
         p->state = UNUSED;
         p->pid = 0;
         p->parent = 0;
@@ -310,7 +313,7 @@ exit(void)
 {
   struct proc *p;
   int fd;
-
+		
   if(proc == initproc)
     panic("init exiting");
 
@@ -334,13 +337,11 @@ exit(void)
   
   //kill all children and threads and wait for them to exit
 	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-		if (p->parent == proc && p->thrdflg ==1){
-			if (p->pid == 0){
+		if (p->parent == proc) {// && p->thrdflg ==1){
 				p->killed = 1;
      		// Wake process from sleep if necessary.
       	if(p->state == SLEEPING)
         	p->state = RUNNABLE;
-			}	
 		}
 	}
 	release(&ptable.lock);
@@ -349,11 +350,11 @@ exit(void)
 	for(;;){
 		if (join(-1) == -1)
 			break;
-		}
+	}
 	//can't aquire a lock twice
 	//exit any child threads trying to exit
 	
-	
+	acquire(&ptable.lock);
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
@@ -376,7 +377,9 @@ wait(void)
 {
   struct proc *p;
   int havekids, pid;
-
+	if (proc->thrdflg ==1 )
+		return -1;
+		
   acquire(&ptable.lock);
   for(;;){
     // Scan through table looking for zombie children.
