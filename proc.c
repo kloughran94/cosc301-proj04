@@ -216,9 +216,10 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
 }
 
 int join (int pid){
-	struct proc *p;
-  int havekids;
+  struct proc *p;
+  int havekids,specchild;
   acquire(&ptable.lock);
+  specchild = 0;
   
   if(pid == -1){
   	havekids = 0;
@@ -241,46 +242,47 @@ int join (int pid){
 				    return pid;
 				  }
 				}
-		if(!havekids || proc->killed){
-      release(&ptable.lock);
-      return -1;
-    }
-  	sleep(proc, &ptable.lock);  //DOC: wait-sleep
   }
   
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid){
+        specchild = 1;
+	if (p->thrdflg == 0){
+          return -1;  //can't call function on parent process's pid
+	}
+	if (p->parent->pid != proc->pid){
+	  return -1;
+	}
+  
+     }
+  }
+  
+  if(specchild == 0){
+    return -1;
+  }
   for(;;){
     // Scan through table looking for zombie children.
-		  havekids = 0;
-		  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-		  	if(p->pid == pid){
-		  		if (p->thrdflg == 0){
-		  			return -1;  //can't call function on parent process's pid
-		  		}
-		  		if (p->parent->pid
-		  	}
-		  }
-		  	
-		  	//how to check if function is called by parent process????
-		  	
-		  	
-		  	
-		    if(p->parent != proc)
-		      continue;
-		    havekids = 1;
-		    if(p->state == ZOMBIE){
-		      // Found one.
-		      pid = p->pid;
-		      kfree(p->kstack);
-		      p->kstack = 0;
-		      freevm(p->pgdir);
-		      p->state = UNUSED;
-		      p->pid = 0;
-		      p->parent = 0;
-		      p->name[0] = 0;
-		      p->killed = 0;
-		      release(&ptable.lock);
-		      return pid;
-		    }
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+	if(p->parent != proc)
+	  continue;
+	havekids = 1;
+	if(p->state == ZOMBIE){
+	  // Found one.
+          pid = p->pid;
+          kfree(p->kstack);
+          p->kstack = 0;
+          freevm(p->pgdir);
+          p->state = UNUSED;
+          p->pid = 0;
+          p->parent = 0;
+          p->name[0] = 0;
+          p->killed = 0;
+          release(&ptable.lock);
+          return pid;
+        }
+     }
+  }
 		  
 	
 
@@ -347,7 +349,9 @@ wait(void)
 {
   struct proc *p;
   int havekids, pid;
-
+  if(proc->thrdflg == 1){
+    return -1;
+  }
   acquire(&ptable.lock);
   for(;;){
     // Scan through table looking for zombie children.
