@@ -43,12 +43,14 @@ main(int argc, char *argv[])
    } else {
      printf(1, "TEST PASSED\n");
    }
-
+	 printf(1,"hereeee\n");
    exit();
+   printf(1,"hereeee2\n");
 }
 
 void
 worker(void *arg_ptr) {
+	 //cprintf("in worker\n");
    assert(global == 1);
    global = 5;
    exit();

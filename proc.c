@@ -187,11 +187,12 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
   // Allocate process.
   if((np = allocproc()) == 0)
     return -1;
+    
 	if (proc->thrdflg == 1){
 		np->parent = proc->parent;
 	}
 	else{
-	np->parent = proc;
+		np->parent = proc;
 	}
   np->pgdir = proc->pgdir;
   np->sz = proc->sz;
@@ -232,6 +233,9 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
   return pid;
 }
 
+
+
+
 int join (int pid){
   struct proc *p;
   int havekids,specchild, anychild;
@@ -255,25 +259,27 @@ int join (int pid){
 			}	
   	}
   }
-  
+  release(&ptable.lock);
   if(specchild == 0 && pid >= 0){
-  	release(&ptable.lock);
+  	//release(&ptable.lock);
     return -1;
   }
   
    if(anychild == 0 && pid == -1){
-  	release(&ptable.lock);
+  	//release(&ptable.lock);
     return -1;
   }
+  
+  acquire(&ptable.lock);
   
   for(;;){
     // Scan through table looking for zombie children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    	if (pid != -1 && p->pid != pid){
+    	if (pid >=0 && p->pid != pid){
     		continue;
     	}
-      if(p->parent != proc && p->thrdflg != 1)
+      if(p->parent != proc) 
         continue;
       havekids = 1;
       if(p->state == ZOMBIE){
@@ -290,7 +296,7 @@ int join (int pid){
         return pid;
       }
     }
-
+		//break join
     // No point waiting if we don't have any children.
     if(!havekids || proc->killed){
       release(&ptable.lock);
@@ -329,23 +335,20 @@ exit(void)
   iput(proc->cwd);
   end_op();
   proc->cwd = 0;
-
   acquire(&ptable.lock);
-
-  // Parent might be sleeping in wait().
-  wakeup1(proc->parent);
   
   //kill all children and threads and wait for them to exit
-	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-		if (p->parent == proc) {// && p->thrdflg ==1){
-				p->killed = 1;
-     		// Wake process from sleep if necessary.
-      	if(p->state == SLEEPING)
-        	p->state = RUNNABLE;
+	if(proc->thrdflg== 0){
+		for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+			if (p->parent == proc) {
+					p->killed = 1;
+		   		// Wake process from sleep if necessary.
+		    	if(p->state == SLEEPING)
+		      	p->state = RUNNABLE;
+			}
 		}
 	}
 	release(&ptable.lock);
-	
 	
 	for(;;){
 		if (join(-1) == -1)
@@ -353,8 +356,11 @@ exit(void)
 	}
 	//can't aquire a lock twice
 	//exit any child threads trying to exit
-	
 	acquire(&ptable.lock);
+
+	
+	  // Parent might be sleeping in wait().
+  wakeup1(proc->parent);
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
