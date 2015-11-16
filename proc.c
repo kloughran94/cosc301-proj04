@@ -108,6 +108,7 @@ int
 growproc(int n)
 {
   uint sz;
+  struct proc *p;
   
   sz = proc->sz;
   if(n > 0){
@@ -118,6 +119,18 @@ growproc(int n)
       return -1;
   }
   proc->sz = sz;
+  acquire(&ptable.lock);
+  if (proc->thrdflg == 1){
+  	proc = proc->parent;
+  	proc->sz= sz;
+  }
+  
+  for (p=ptable.proc; p <&ptable.proc[NPROC]; p++){
+  	if(p->parent == proc && p->thrdflg ==1)
+  		proc->sz=sz;
+  }
+  
+  release(&ptable.lock);
   switchuvm(proc);
   return 0;
 }
@@ -217,74 +230,63 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
 
 int join (int pid){
   struct proc *p;
-  int havekids,specchild;
-  acquire(&ptable.lock);
+  int havekids,specchild, anychild;
   specchild = 0;
-  
-  if(pid == -1){
-  	havekids = 0;
-		for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-				  if(p->parent != proc)
-				    continue;
-				  havekids = 1;
-				  if(p->state == ZOMBIE){
-				    // Found one.
-				    pid = p->pid;
-				    kfree(p->kstack);
-				    p->kstack = 0;
-				    freevm(p->pgdir);
-				    p->state = UNUSED;
-				    p->pid = 0;
-				    p->parent = 0;
-				    p->name[0] = 0;
-				    p->killed = 0;
-				    release(&ptable.lock);
-				    return pid;
-				  }
-				}
-  }
-  
+  anychild = 0;
+  	
+  acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+  	if(pid == -1){
+  		anychild = 1;
+  	}
     if(p->pid == pid){
         specchild = 1;
-	if (p->thrdflg == 0){
-          return -1;  //can't call function on parent process's pid
-	}
-	if (p->parent->pid != proc->pid){
-	  return -1;
-	}
-  
-     }
+			if (p->thrdflg == 0){
+				release(&ptable.lock);
+				return -1;  //can't call function on parent process's pid
+			}
+			if (p->parent->pid != proc->pid){
+				release(&ptable.lock);
+				return -1;
+			}	
+  	}
   }
   
-  if(specchild == 0){
+  if(specchild == 0 && pid >= 0){
+  	release(&ptable.lock);
     return -1;
   }
+  
+   if(anychild == 0 && pid == -1){
+  	release(&ptable.lock);
+    return -1;
+  }
+  
   for(;;){
     // Scan through table looking for zombie children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-	if(p->parent != proc)
-	  continue;
-	havekids = 1;
-	if(p->state == ZOMBIE){
-	  // Found one.
-          pid = p->pid;
-          kfree(p->kstack);
-          p->kstack = 0;
-          freevm(p->pgdir);
-          p->state = UNUSED;
-          p->pid = 0;
-          p->parent = 0;
-          p->name[0] = 0;
-          p->killed = 0;
-          release(&ptable.lock);
-          return pid;
-        }
-     }
-  }
-		  
-	
+    	if (pid != -1 && p->pid != pid){
+    		continue;
+    	}
+      if(p->parent != proc && p->thrdflg != 1)
+        continue;
+      havekids = 1;
+      if(p->state == ZOMBIE){
+        // Found one.
+        pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->state = UNUSED;
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        release(&ptable.lock);
+        return pid;
+      }
+    }
 
     // No point waiting if we don't have any children.
     if(!havekids || proc->killed){
@@ -295,6 +297,9 @@ int join (int pid){
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(proc, &ptable.lock);  //DOC: wait-sleep
   }
+  
+
+  
 }
 
 // Exit the current process.  Does not return.
@@ -326,7 +331,29 @@ exit(void)
 
   // Parent might be sleeping in wait().
   wakeup1(proc->parent);
-
+  
+  //kill all children and threads and wait for them to exit
+	for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+		if (p->parent == proc && p->thrdflg ==1){
+			if (p->pid == 0){
+				p->killed = 1;
+     		// Wake process from sleep if necessary.
+      	if(p->state == SLEEPING)
+        	p->state = RUNNABLE;
+			}	
+		}
+	}
+	release(&ptable.lock);
+	
+	
+	for(;;){
+		if (join(-1) == -1)
+			break;
+		}
+	//can't aquire a lock twice
+	//exit any child threads trying to exit
+	
+	
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
@@ -349,14 +376,14 @@ wait(void)
 {
   struct proc *p;
   int havekids, pid;
-  if(proc->thrdflg == 1){
-    return -1;
-  }
+
   acquire(&ptable.lock);
   for(;;){
     // Scan through table looking for zombie children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    	if (p->thrdflg == 1)
+    		continue;						//don't wait if the proc is a thread
       if(p->parent != proc)
         continue;
       havekids = 1;
