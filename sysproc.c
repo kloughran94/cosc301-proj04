@@ -22,7 +22,7 @@ sys_clone(void)
 		if (argint(0, &fcn) < 0) {
 			return -1;
 		}
-		if (argint(0, &arg) < 0) {
+		if (argint(1, &arg) < 0) {
 			return -1;
 		}
 		if (argint(2, &stack) < 0) {

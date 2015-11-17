@@ -184,7 +184,8 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
 {
   int i, pid;
   struct proc *np;
-
+	if (((uint)stack % PGSIZE !=0) || ((uint)stack < PGSIZE) || fcn==0)
+		return -1;
   // Allocate process.
   if((np = allocproc()) == 0)
     return -1;
@@ -239,9 +240,9 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
 
 int join (int pid){
   struct proc *p;
-  int havekids,specchild;//, anychild;
+  int havekids,specchild, anychild;
   specchild = 0;
-  //anychild = 0;
+  anychild = 0;
   if (pid == proc->pid || proc->thrdflg == 1)	
   	return -1;
   	
@@ -249,20 +250,20 @@ int join (int pid){
   acquire(&ptable.lock);
   
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-  	/*if(pid == -1){
+  	if(pid == -1){
   		anychild = 1;
   		break;
-  	}*/
+  	}
     if(p->pid == pid){
         specchild = 1;   
-			/*if (p->thrdflg == 0){
+			if (p->thrdflg == 0){
 				release(&ptable.lock);
 				return -1;  //can't call function on parent process's pid
 			}
 			if (p->parent->pid != proc->pid){
 				release(&ptable.lock);
 				return -1;
-			}*/	
+			}
   	}
   }
   
@@ -270,11 +271,11 @@ int join (int pid){
   	release(&ptable.lock);
     return -1;
   }
-  /*
+  
    if(anychild == 0 && pid == -1){
   	release(&ptable.lock);
     return -1;
-  }*/
+  }
 
   
   for(;;){
