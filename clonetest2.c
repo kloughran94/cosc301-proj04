@@ -54,17 +54,14 @@ main(int argc, char *argv[])
     assert(clone_pid > 0);
     pids[tid] = clone_pid;
   }
-	printf(1, "here\n");
   sleep(1);
   while (global < numthreads) {}
   printf(1, "Threads done; now joining all\n");
-	printf(1, "here2\n");
   // join threads by id
   for (tid=0; tid < numthreads; tid++) {
     int jointhr = join(pids[tid]);
     assert(jointhr == pids[tid]);
   }
-  printf(1, "here3\n");
   int jointhr = join(-1);
   assert(jointhr == -1); // should return -1; no more threads to join
 

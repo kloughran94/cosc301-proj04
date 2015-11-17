@@ -129,6 +129,9 @@ growproc(int n)
   for (p=ptable.proc; p <&ptable.proc[NPROC]; p++){
   	if(p->parent == p2) 
   		proc->sz=sz;
+  	 if(p->pgdir == proc->pgdir){
+      p->sz = sz;
+     }
   }
   
   release(&ptable.lock);
