@@ -109,6 +109,7 @@ growproc(int n)
 {
   uint sz;
   struct proc *p;
+  struct proc *p2= proc;
   
   sz = proc->sz;
   if(n > 0){
@@ -119,14 +120,14 @@ growproc(int n)
       return -1;
   }
   proc->sz = sz;
+  
   acquire(&ptable.lock);
   if (proc->thrdflg == 1){
-  	proc = proc->parent;
-  	proc->sz= sz;
+  	p2 = proc->parent;
   }
   
   for (p=ptable.proc; p <&ptable.proc[NPROC]; p++){
-  	if(p->parent == proc && p->thrdflg ==1)
+  	if(p->parent == p2) 
   		proc->sz=sz;
   }
   
@@ -238,39 +239,43 @@ int clone(void(*fcn)(void*), void *arg, void *stack)
 
 int join (int pid){
   struct proc *p;
-  int havekids,specchild, anychild;
+  int havekids,specchild;//, anychild;
   specchild = 0;
-  anychild = 0;
+  //anychild = 0;
+  if (pid == proc->pid || proc->thrdflg == 1)	
+  	return -1;
+  	
   	
   acquire(&ptable.lock);
+  
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-  	if(pid == -1){
+  	/*if(pid == -1){
   		anychild = 1;
-  	}
+  		break;
+  	}*/
     if(p->pid == pid){
-        specchild = 1;
-			if (p->thrdflg == 0){
+        specchild = 1;   
+			/*if (p->thrdflg == 0){
 				release(&ptable.lock);
 				return -1;  //can't call function on parent process's pid
 			}
 			if (p->parent->pid != proc->pid){
 				release(&ptable.lock);
 				return -1;
-			}	
+			}*/	
   	}
   }
-  release(&ptable.lock);
+  
   if(specchild == 0 && pid >= 0){
-  	//release(&ptable.lock);
+  	release(&ptable.lock);
     return -1;
   }
-  
+  /*
    if(anychild == 0 && pid == -1){
-  	//release(&ptable.lock);
+  	release(&ptable.lock);
     return -1;
-  }
-  
-  acquire(&ptable.lock);
+  }*/
+
   
   for(;;){
     // Scan through table looking for zombie children.
@@ -279,7 +284,7 @@ int join (int pid){
     	if (pid >=0 && p->pid != pid){
     		continue;
     	}
-      if(p->parent != proc) 
+      if(p->parent != proc || p->thrdflg != 1) 
         continue;
       havekids = 1;
       if(p->state == ZOMBIE){
@@ -296,7 +301,7 @@ int join (int pid){
         return pid;
       }
     }
-		//break join
+
     // No point waiting if we don't have any children.
     if(!havekids || proc->killed){
       release(&ptable.lock);
@@ -322,21 +327,8 @@ exit(void)
 		
   if(proc == initproc)
     panic("init exiting");
-
-  // Close all open files.
-  for(fd = 0; fd < NOFILE; fd++){
-    if(proc->ofile[fd]){
-      fileclose(proc->ofile[fd]);
-      proc->ofile[fd] = 0;
-    }
-  }
-
-  begin_op();
-  iput(proc->cwd);
-  end_op();
-  proc->cwd = 0;
+    
   acquire(&ptable.lock);
-  
   //kill all children and threads and wait for them to exit
 	if(proc->thrdflg== 0){
 		for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
@@ -354,13 +346,25 @@ exit(void)
 		if (join(-1) == -1)
 			break;
 	}
+	  // Close all open files.
+  for(fd = 0; fd < NOFILE; fd++){
+    if(proc->ofile[fd]){
+      fileclose(proc->ofile[fd]);
+      proc->ofile[fd] = 0;
+    }
+  }
+
+  begin_op();
+  iput(proc->cwd);
+  end_op();
+  proc->cwd = 0;
 	//can't aquire a lock twice
 	//exit any child threads trying to exit
 	acquire(&ptable.lock);
-
 	
 	  // Parent might be sleeping in wait().
   wakeup1(proc->parent);
+  
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == proc){
@@ -383,8 +387,6 @@ wait(void)
 {
   struct proc *p;
   int havekids, pid;
-	if (proc->thrdflg ==1 )
-		return -1;
 		
   acquire(&ptable.lock);
   for(;;){
